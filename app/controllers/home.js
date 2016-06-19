@@ -37,7 +37,7 @@ router.get('/nearby', function(req, res, next) {
 
 router.post('/intersects-line', function(req, res, next) {
   const { points, distance } = req.body;
-  const polygon = lineToPolygon(points, distance || 0.001);
+  const polygon = lineToPolygon(points, distance || .001);
   // Make sure to post JSON here so you get all numeric datatypes
   //console.log(polygon);
   Incident.collection.find({
