@@ -3,7 +3,7 @@
   <head>
     <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
     <meta charset="utf-8">
-    <title>Directions service</title>
+    <title>Danger Zone Demo</title>
     <style>
       html, body {
         height: 100%;
@@ -27,57 +27,62 @@
         padding-left: 10px;
       }
     </style>
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
   </head>
   <body>
     <div id="floating-panel">
     <b>Start: </b>
     <select id="start">
-      <option value="chicago, il">Chicago</option>
-      <option value="st louis, mo">St Louis</option>
-      <option value="joplin, mo">Joplin, MO</option>
-      <option value="oklahoma city, ok">Oklahoma City</option>
-      <option value="amarillo, tx">Amarillo</option>
-      <option value="gallup, nm">Gallup, NM</option>
-      <option value="flagstaff, az">Flagstaff, AZ</option>
-      <option value="winona, az">Winona</option>
-      <option value="kingman, az">Kingman</option>
-      <option value="barstow, ca">Barstow</option>
-      <option value="san bernardino, ca">San Bernardino</option>
-      <option value="los angeles, ca">Los Angeles</option>
       <option value="Des Moines">Des Moines</option>
       <option value="Omaha">Omaha</option>
       <option value="Clive, IA">Clive, IA</option>
+      <option value="Ames, IA">Ames, IA</option>
+      <option value="BettenDorf, IA">BettenDorf, IA</option>
+      <option value="Waterloo, IA">Waterloo, IA</option>
+      <option value="Cedar Rapids, IA">Cedar Rapids, IA</option>
+      <option value="Iowa City, IA">Iowa City, IA</option>
+      <option value="Bloomfield, IA">Bloomfield, IA</option>
+      <option value="Red Oak, IA">Red Oak, IA</option>
 
     </select>
     <b>End: </b>
     <select id="end">
-      <option value="chicago, il">Chicago</option>
-      <option value="st louis, mo">St Louis</option>
-      <option value="joplin, mo">Joplin, MO</option>
-      <option value="oklahoma city, ok">Oklahoma City</option>
-      <option value="amarillo, tx">Amarillo</option>
-      <option value="gallup, nm">Gallup, NM</option>
-      <option value="flagstaff, az">Flagstaff, AZ</option>
-      <option value="winona, az">Winona</option>
-      <option value="kingman, az">Kingman</option>
-      <option value="barstow, ca">Barstow</option>
-      <option value="san bernardino, ca">San Bernardino</option>
-      <option value="los angeles, ca">Los Angeles</option>
       <option value="Des Moines">Des Moines</option>
       <option value="Omaha">Omaha</option>
       <option value="Clive, IA">Clive, IA</option>
+      <option value="Ames, IA">Ames, IA</option>
+      <option value="BettenDorf, IA">BettenDorf, IA</option>
+      <option value="Waterloo, IA">Waterloo, IA</option>
+      <option value="Cedar Rapids, IA">Cedar Rapids, IA</option>
+      <option value="Iowa City, IA">Iowa City, IA</option>
+      <option value="Bloomfield, IA">Bloomfield, IA</option>
+      <option value="Red Oak, IA">Red Oak, IA</option>
 
     </select>
+    <div>
+      <h5>Raw Accidents Per 1000 Meters: <span id='1000meters'></span></h5>
+      <h5>Raw Accidents Per 60 Seconds: <span id='60seconds'></span></h5>
+    </div>
     </div>
     <div id="map"></div>
     <script>
+      var theMap;
+      var accidentsFound;
+      var accidentMarkers;
+      var accidentsTotal;
+      var distanceMeters;
+      var estDriveTimeSeconds;
+      var heatMap;
+
       function initMap() {
         var directionsService = new google.maps.DirectionsService;
         var directionsDisplay = new google.maps.DirectionsRenderer;
         var map = new google.maps.Map(document.getElementById('map'), {
           zoom: 7,
-          center: {lat: 41.85, lng: -87.65}
+          //center: {lat: 41.85, lng: -87.65}
+          center: {lat: 41.600, lng: -93.609}
         });
+        theMap = map;
         directionsDisplay.setMap(map);
 
         var onChangeHandler = function() {
@@ -88,6 +93,18 @@
       }
 
       function calculateAndDisplayRoute(directionsService, directionsDisplay) {
+
+        if(accidentMarkers && accidentMarkers.length !== 0) {
+          accidentMarkers.forEach(function(marker) {
+            marker.setMap(null);
+          });
+        }
+
+        if(heatMap && heatMap.getMap()) {
+          console.log('remove heatmap');
+          heatMap.setMap(null);
+        }
+
         directionsService.route({
           origin: document.getElementById('start').value,
           destination: document.getElementById('end').value,
@@ -95,14 +112,91 @@
         }, function(response, status) {
           if (status === google.maps.DirectionsStatus.OK) {
             directionsDisplay.setDirections(response);
+            gotResponseForRoute(response);
           } else {
             window.alert('Directions request failed due to ' + status);
           }
         });
       }
+
+      function gotResponseForRoute(response) {
+        console.log('compute for route: ', response);
+        var pts = [];
+        pts = response.routes[0].overview_path.map(function(p) {
+          return [p.lng(), p.lat()];
+        });
+        distanceMeters = response.routes[0].legs[0].distance.value;
+        estDriveTimeSeconds = response.routes[0].legs[0].duration.value;
+        $.ajax({
+          url: "/intersects-line",
+          data: JSON.stringify({
+            points: pts,
+            distance: 0.0001
+          }),
+          dataType: 'json',
+          contentType: "application/json",
+          type: 'POST'
+        }).done(function(response){
+          if(!response.results) {
+            console.error('no results found');
+            return;
+          }
+          console.log(response);
+          accidentsFound = response.results;
+          markersForAccidents(response.results);
+          mkHeatMap(response.results);
+          calcScore();
+        }).error(function(err) {
+          console.error(err);
+        });
+      }
+
+      function calcScore() {
+        var accidentsPer1000Meters = (accidentsFound.length / (distanceMeters / 1000));
+        var accidentsPerMinuteDriving = (accidentsFound.length / (estDriveTimeSeconds / (60)));
+        console.log('Accidents per 1000 m: ', accidentsPer1000Meters);
+        console.log('Accidents per minute driving: ', accidentsPerMinuteDriving);
+        $('#1000meters').text(accidentsPer1000Meters.toFixed(3));
+        $('#60seconds').text(accidentsPerMinuteDriving.toFixed(3));
+      }
+
+      function markersForAccidents(results) {
+        var markers = [];
+        results.forEach(function(res) {
+          var marker = new google.maps.Marker({
+            position: {
+              lat: res.geometry.coordinates[1],
+              lng: res.geometry.coordinates[0]
+            },
+            map: theMap,
+            title: res.type + ' ' + res.raw.FRSTHARM,
+            icon: '/icon.png'
+          });
+          markers.push(marker);
+        });
+
+        accidentMarkers = markers;
+      }
+
+      function mkHeatMap(results) {
+        var locs = results.map(function(res) {
+          return new google.maps.LatLng(
+            res.geometry.coordinates[1],
+            res.geometry.coordinates[0]
+          );
+        });
+
+        heatMap = new google.maps.visualization.HeatmapLayer({
+          data: locs,
+          map: theMap,
+          radius: 50,
+          opacity: 0.7
+        });
+        console.log('made heatmap: ', heatMap);
+      }
     </script>
     <script async defer
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDWXJBGOEBg5X3GC_KAVhd6civbLiI_EV4&callback=initMap">
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDWXJBGOEBg5X3GC_KAVhd6civbLiI_EV4&callback=initMap&libraries=visualization">
     </script>
   </body>
 </html>

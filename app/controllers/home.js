@@ -10,9 +10,7 @@ module.exports = function (app) {
 };
 
 router.get('/', function (req, res, next) {
-  res.render('index', {
-    title: 'Generator-Express MVC',
-  });
+  res.redirect('/example-directions.html');
 });
 
 router.get('/nearby', function(req, res, next) {
